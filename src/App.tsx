@@ -1,7 +1,15 @@
 import { FrameProvider } from "./FrameContext";
+
 import { useCurrentFrame } from "./useCurrentFrame";
 
 import "./App.css";
+import {
+  motion,
+  useTransform,
+  easeOut,
+  useMotionValueEvent,
+} from "motion/react";
+import { useState } from "react";
 
 interface AnimationProps {
   id: number;
@@ -12,54 +20,51 @@ interface AnimationProps {
   bgColor: string;
 }
 
-function easeOut(t: number) {
-  return 1 - Math.pow(1 - t, 2);
-}
+const fps = 60;
+const msPerFrame = 1000 / fps;
 
-function interpolate(
-  input: number,
-  inputRange: [number, number],
-  outputRange: [number, number],
-  options?: { ease?: (t: number) => number }
-) {
-  const [inMin, inMax] = inputRange;
-  const [outMin, outMax] = outputRange;
-  let t = (input - inMin) / (inMax - inMin);
-  t = Math.max(0, Math.min(1, t));
-  if (options?.ease) t = options.ease(t);
-  return outMin + (outMax - outMin) * t;
-}
-
-function Animation({ startMs, durationMs, bgColor, x }: AnimationProps) {
+function Animation({ startMs, durationMs, bgColor, x, y }: AnimationProps) {
   const { frame } = useCurrentFrame();
-  const msPerFrame = 1000 / 60;
-  const currentMs = frame * msPerFrame;
-  const before = currentMs < startMs;
-  const after = currentMs >= startMs + durationMs;
-  if (before) return null;
 
-  // 动画时间插值
-  const time = after ? durationMs : currentMs - startMs;
-  const opacity = interpolate(time, [0, 250], [0, 1]);
-  const translateY = interpolate(time, [0, durationMs], [100, 0], {
-    ease: easeOut,
+  const currentMS = useTransform(frame, (v) => v * msPerFrame);
+
+  const [visible, setVisible] = useState(frame.get() * msPerFrame >= startMs);
+
+  const after = useTransform(currentMS, (v) => v >= startMs);
+  useMotionValueEvent(after, "change", () => setVisible(true));
+
+  const time = useTransform(currentMS, (v) => {
+    if (v < startMs) return 0;
+    if (v >= startMs + durationMs) return durationMs;
+    return v - startMs;
   });
 
+  const opacity = useTransform(time, [0, 250], [0, 1]);
+
+  const transform = useTransform(
+    time,
+    [0, durationMs],
+    ["translateY(100px)", "translateY(0px)"],
+    { ease: easeOut }
+  );
+
+  if (!visible) return null;
+
   return (
-    <div
+    <motion.div
       style={{
         position: "absolute",
         left: x,
-        top: 0,
+        top: y,
         width: 100,
         height: 100,
         borderRadius: "50%",
         background: bgColor,
         opacity,
-        transform: `translateY(${translateY}px)`,
+        transform,
         transition: "none",
       }}
-    ></div>
+    ></motion.div>
   );
 }
 
@@ -81,15 +86,22 @@ function FrameDemo() {
         gap: 16,
       }}
     >
-      <p>{JSON.stringify(nodes, null, 2)}</p>
-
-      <div style={{ position: "relative", height: 180, width: 200 }}>
+      <div
+        style={{
+          position: "relative",
+          height: 180,
+          width: 200,
+          marginTop: 100,
+        }}
+      >
         {nodes.map((node) => (
           <Animation key={node.id} {...node} />
         ))}
       </div>
 
-      <div style={{ width: 200, textAlign: "center" }}>当前帧: {frame}</div>
+      <div style={{ width: 200, textAlign: "center" }}>
+        当前帧: <motion.span>{frame}</motion.span>
+      </div>
 
       <div>
         <button onClick={() => seek(0)}>重置到第 0 帧</button>
@@ -99,10 +111,10 @@ function FrameDemo() {
         <button disabled={!isPlaying} onClick={() => stop()}>
           停止
         </button>
-        <button disabled={isPlaying} onClick={() => seek(frame - 1)}>
+        <button disabled={isPlaying} onClick={() => seek(frame.get() - 1)}>
           上一帧
         </button>
-        <button disabled={isPlaying} onClick={() => seek(frame + 1)}>
+        <button disabled={isPlaying} onClick={() => seek(frame.get() + 1)}>
           下一帧
         </button>
       </div>
@@ -110,20 +122,13 @@ function FrameDemo() {
   );
 }
 
-function getMaxFrameFromNodes(
-  nodes: AnimationProps[],
-  fps: number = 60
-): number {
-  // 计算所有节点的结束时间（ms），取最大值
+function getMaxFrameFromNodes(nodes: AnimationProps[]): number {
   const maxEndMs = Math.max(...nodes.map((n) => n.startMs + n.durationMs));
-  // 转换为帧数
-  return Math.ceil(maxEndMs / (1000 / fps));
+  return Math.ceil(maxEndMs / msPerFrame);
 }
 
 function App() {
-  const fps = 60;
-  const durationInFrames = getMaxFrameFromNodes(nodes, fps);
-  console.log("计算得到的总帧数:", durationInFrames);
+  const durationInFrames = getMaxFrameFromNodes(nodes);
 
   return (
     <FrameProvider fps={fps} durationInFrames={durationInFrames}>

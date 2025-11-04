@@ -1,7 +1,9 @@
+import type { MotionValue } from "motion";
+import { useMotionValue } from "motion/react";
 import React, { createContext, useEffect, useState } from "react";
 
 interface FrameContextValue {
-  frame: number;
+  frame: MotionValue<number>;
   play: () => void;
   stop: () => void;
   seek: (frame: number) => void;
@@ -26,13 +28,13 @@ export const FrameProvider: React.FC<FrameProviderProps> = ({
   initialFrame = 0,
   durationInFrames,
 }) => {
-  const [frame, setFrame] = useState(initialFrame);
+  const frame = useMotionValue(initialFrame);
   const [isPlaying, setIsPlaying] = useState(true);
   const [isEnded, setIsEnded] = useState(false);
   const play = () => setIsPlaying(true);
   const stop = () => setIsPlaying(false);
   const seek = (f: number) => {
-    setFrame(f);
+    frame.set(f);
     if (durationInFrames !== undefined) {
       if (f < 0) {
         setIsPlaying(false);
@@ -61,21 +63,21 @@ export const FrameProvider: React.FC<FrameProviderProps> = ({
       const now = performance.now();
       const interval = 1000 / fps;
       if (now - lastTime >= interval) {
-        setFrame((f) => {
-          if (durationInFrames !== undefined && f + 1 > durationInFrames) {
-            setIsPlaying(false);
-            setIsEnded(true);
-            return f;
-          }
-          return f + 1;
-        });
+        const f = frame.get();
+        if (durationInFrames !== undefined && f + 1 > durationInFrames) {
+          setIsPlaying(false);
+          setIsEnded(true);
+          frame.set(f);
+        } else {
+          frame.set(f + 1);
+        }
         lastTime = now;
       }
       rafId = requestAnimationFrame(tick);
     };
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [fps, isPlaying, durationInFrames]);
+  }, [fps, isPlaying, durationInFrames, frame]);
 
   const contextValue: FrameContextValue = {
     frame,
